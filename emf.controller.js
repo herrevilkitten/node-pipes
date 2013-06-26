@@ -2,15 +2,27 @@ var util = require('util');
 var fs = require('fs');
 var url = require('url');
 var path = require('path');
+var http = require('http');
+var events = require('events');
+var mime = require('./emf.mime');
 
 function Controller() {
-	
+	events.EventEmitter.call(this);
+	this.bound = false;
 }
+util.inherits(Controller, events.EventEmitter);
 
-Controller.prototype.requestHandler = function(req, res, callback) {
-	res.writeHead(200, { 'Content-Type': 'text/plain'});
-	res.write('\n');
-	callback(req, res);
+Controller.prototype.requestHandler = function(req, res) {
+	this.emit('data', req, res, {data: '\n'});
+};
+
+function NotFoundController() {
+	Controller.call(this);
+}
+util.inherits(FileController, Controller);
+
+NotFoundController.prototype.requestHandler = function(req, res) {
+	this.emit('error', req, res, {statusCode: 404});
 };
 
 function FileController() {
@@ -20,7 +32,8 @@ function FileController() {
 }
 util.inherits(FileController, Controller);
 
-FileController.prototype.requestHandler = function(req, res, finisher) {
+FileController.prototype.requestHandler = function(req, res) {
+	var controller = this;
 	var reqUrl = url.parse(req.url, false);
 	var filePath = path.join(this.baseDirectory, reqUrl.path);
 	
@@ -28,18 +41,20 @@ FileController.prototype.requestHandler = function(req, res, finisher) {
 	
 	fs.readFile(filePath, function(err, data) {
 		if (err) {
-			res.statusCode = 404;
-			console.log(err);
+			controller.emit('error', req, res, {statusCode: 404});
 		} else {
-			res.statusCode = 200;
-			res.setHeader('Content-Type', 'text/plain');
-			res.write(data);
+			var contentType = mime.lookup(filePath);
+			if ( contentType === undefined ) {
+				console.log('No MIME type defined for %s', filePath);
+				contentType = 'text/plain';
+			}
+			controller.emit('data', req, res, {data: data, headers: { 'Content-Type': contentType}});
 		}
-		finisher(req, res);
 	});
 };
 
 
+Controller.NotFound = NotFoundController;
 Controller.File = FileController;
 
 exports.Controller = Controller;

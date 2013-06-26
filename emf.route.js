@@ -97,7 +97,7 @@ function GlobRoute(route, controller) {
 	/*
 	 * Convert the glob into a regular expression
 	 */
-	var regexpStr = this.route.replace(/\?/g, '([^/])').replace(/\*/g, '([^/]*)');
+	var regexpStr = this.route.replace(/\?/g, '(.)').replace(/\*/g, '(.*)');
 	this.regexp = new RegExp(regexpStr);
 }
 util.inherits(GlobRoute, RegExpRoute);
@@ -144,8 +144,9 @@ NamedRoute.prototype.matches = function(url) {
 	return map;
 };
 
+Route.Static = StaticRoute;
+Route.RegExp = RegExpRoute;
+Route.Glob = GlobRoute;
+Route.Named = NamedRoute;
+
 exports.Route = Route;
-exports.StaticRoute = StaticRoute;
-exports.RegExpRoute = RegExpRoute;
-exports.GlobRoute = GlobRoute;
-exports.NamedRoute = NamedRoute;
