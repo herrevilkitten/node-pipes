@@ -39,10 +39,10 @@ RouteManager.prototype.addRoute = function(pattern, controller) {
 };
 
 function Application(options) {
+	this.options = options || {};
+
 	this.routeManager = new RouteManager();
 	this.filterManager = new FilterManager();
-	this.options = options || {};
-	
 	this.eventManager = new events.EventEmitter();
 }
 
@@ -91,10 +91,10 @@ Application.prototype.requestHandler = function(req, res) {
 	
 	for ( var index = 0; index < this.filterManager.filters.length; ++index ) {
 		req = this.filterManager.filters[index](req, res);
-	}
-	if ( req === undefined ) {
-		res.end();
-		return;
+		if ( req === undefined ) {
+			res.end();
+			return;
+		}
 	}
 
 	var controller = this.routeManager.matchRoute(req);

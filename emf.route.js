@@ -64,7 +64,7 @@ function RegExpRoute(route, controller) {
 	if ( util.isRegExp(route) ) {
 		this.regexp = route;
 	} else {
-		this.regexp = new RegExp(route);
+		this.regexp = new RegExp('^' + route + '$');
 	}
 }
 util.inherits(RegExpRoute, Route);
@@ -77,7 +77,7 @@ RegExpRoute.prototype.matches = function(url) {
 	
 	var map = {
 		input: url,
-		parameters: []
+		parameters: {}
 	};
 	for ( var index = 1; index < results.length; ++index ) {
 		map.parameters[index - 1] = results[index]; 
@@ -93,28 +93,28 @@ RegExpRoute.prototype.matches = function(url) {
  *   * becomes (.*)
  */
 function GlobRoute(route, controller) {
-	Route.call(this, route, controller);
 	/*
 	 * Convert the glob into a regular expression
 	 */
-	var regexpStr = this.route.replace(/\?/g, '(.)').replace(/\*/g, '(.*)');
-	this.regexp = new RegExp(regexpStr);
+	route = route.replace(/\?/g, '(.)').replace(/\*/g, '(.*)');
+	RegExpRoute.call(this, route, controller);
 }
 util.inherits(GlobRoute, RegExpRoute);
 
 /*
  * Named Glob route: '/account/:id'
- * - Rewritten to be a RegExp:
- *   :\w+ becomes (\w+)
+ * - Rewritten to be a Glob:
+ *   :[^/]+ becomes *
  */
-var NAMED_ROUTE_PATTERN = /:(\w+)/g;
+var NAMED_ROUTE_PATTERN = /[:=](\w+)/g;
+var OPTIONAL_NAMED_ROUTE_PATTERN = /:(\w+)/g;
+var REQUIRED_NAMED_ROUTE_PATTERN = /=(\w+)/g;
 function NamedRoute(route, controller) {
-	Route.call(this, route, controller);
 	this.parameters = [];
 	/*
 	 * Save the parameter names for the hash later
 	 */
-	var namedParams = this.route.match(NAMED_ROUTE_PATTERN);
+	var namedParams = route.match(NAMED_ROUTE_PATTERN);
 	if ( namedParams ) {
 		for ( var index = 0; index < namedParams.length; ++index ) {
 			this.parameters[index] = namedParams[index].substring(1);
@@ -123,8 +123,8 @@ function NamedRoute(route, controller) {
 	/*
 	 * Convert the named route into a regular expression
 	 */
-	var regexpStr = this.route.replace(NAMED_ROUTE_PATTERN, '([^/]*)');
-	this.regexp = new RegExp(regexpStr);
+	route = route.replace(REQUIRED_NAMED_ROUTE_PATTERN, '(.+)').replace(OPTIONAL_NAMED_ROUTE_PATTERN, '(.*)');
+	RegExpRoute.call(this, route, controller);
 }
 util.inherits(NamedRoute, RegExpRoute);
 

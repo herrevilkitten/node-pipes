@@ -1,18 +1,26 @@
 {
-  "name": "portfolio-js",
+  "name": "emf",
   "version": "0.1.0",
-  "description": "portfolio-js",
-  "main": "hello-world-server.js",
+  "description": "Eric's MVC Framework: an experimental MVC framework being built to learn nodejs",
+  "main": "emf.js",
+  "author": "Eric Kidder",
+  "homepage": "https://bitbucket.org/kageneko/node-emf",
   "scripts": {
-    "test": "echo \"Error: no test specified! Configure in package.json\" && exit 1"
+    "test": "jasmine-node spec"
   },
-  "repository": "",
+  "repository": {
+  	"type": "git",
+  	"url": "https://kageneko@bitbucket.org/kageneko/node-emf.git"
+  },
   "keywords": [
-    "Node.js",
-    "Eclipse",
-    "Nodeclipse"
+    "MVC"
   ],
-  "author": "",
+  "dependencies": {
+  	"mime": ">= 1.2.9"
+  },
+  "devDependencies": {
+	"jasmine-node": ">= 1.3.1"
+  },
   "license": "BSD",
   "readmeFilename": "README.md"
 }
