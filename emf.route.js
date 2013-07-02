@@ -26,9 +26,9 @@ Route.create = function(route, controller) {
 		 * If it has a * or ?, it is a GlobRoute
 		 */
 		routeObject = new GlobRoute(route, controller);
-	} else if ( route.match(/:\w+/g) ) {
+	} else if ( route.match(/[:=]\w+/g) ) {
 		/*
-		 * If it has :\w+, it is a NamedRoute
+		 * If it has :\w+ or =\w+, it is a NamedRoute
 		 */
 		routeObject = new NamedRoute(route, controller);
 	} else {
@@ -51,7 +51,8 @@ function StaticRoute(route, controller) {
 util.inherits(StaticRoute, Route);
 
 StaticRoute.prototype.matches = function(url) {
-	return url === this.route ? StaticRoute.super_.prototype.matches.call(this, url) : null;
+	return (url === this.route) ?
+			StaticRoute.super_.prototype.matches.call(this, url) : null;
 };
 
 /*
@@ -96,7 +97,9 @@ function GlobRoute(route, controller) {
 	/*
 	 * Convert the glob into a regular expression
 	 */
-	route = route.replace(/\?/g, '(.)').replace(/\*/g, '(.*)');
+	route = route.replace(/\?/g, '(.)').replace(/\*\*?/g, function(match) {
+		if ( match === '**' ) { return '(.*)'; } else { return '([^/]*)'; }
+	});
 	RegExpRoute.call(this, route, controller);
 }
 util.inherits(GlobRoute, RegExpRoute);

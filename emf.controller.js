@@ -5,8 +5,9 @@ var path = require('path');
 var http = require('http');
 var events = require('events');
 var mime = require('./emf.mime');
+var logger = require('./emf.logger');
 
-function Controller() {
+function Controller(options) {
 	events.EventEmitter.call(this);
 	this.bound = false;
 }
@@ -25,10 +26,11 @@ NotFoundController.prototype.requestHandler = function(req, res) {
 	this.emit('error', req, res, {statusCode: 404});
 };
 
-function FileController() {
-	Controller.call(this);
+function FileController(options) {
+	options = options || {};
+	Controller.call(this, options);
 
-	this.baseDirectory = __dirname;
+	this.baseDirectory = options.baseDirectory || path.join(process.cwd(), 'public');
 }
 util.inherits(FileController, Controller);
 
@@ -37,7 +39,7 @@ FileController.prototype.requestHandler = function(req, res) {
 	var reqUrl = url.parse(req.url, false);
 	var filePath = path.join(this.baseDirectory, reqUrl.path);
 	
-	console.log('Reading %s', filePath);
+	logger.info('Reading %s', filePath);
 	
 	fs.readFile(filePath, function(err, data) {
 		if (err) {
@@ -45,7 +47,7 @@ FileController.prototype.requestHandler = function(req, res) {
 		} else {
 			var contentType = mime.lookup(filePath);
 			if ( contentType === undefined ) {
-				console.log('No MIME type defined for %s', filePath);
+				logger.warn('No MIME type defined for %s', filePath);
 				contentType = 'text/plain';
 			}
 			controller.emit('data', req, res, {data: data, headers: { 'Content-Type': contentType}});
