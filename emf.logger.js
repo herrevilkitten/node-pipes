@@ -2,12 +2,20 @@ var http = require('http');
 var util = require('util');
 
 var winston = require('winston');
+var strftime = require('strftime');
 
+/*
+ * Configure winston
+ */
 winston.remove(winston.transports.Console);
 winston.add(winston.transports.Console, {
-	timestamp: true,
+	timestamp: function() {
+		return strftime('%F %T');
+	},
 	colorize: true
 });
+
+var LOG_LEVELS = [ 'verbose', 'info', 'warn', 'error', 'trace' ];
 
 function log() {
 	var args = Array.prototype.slice.call(arguments);
@@ -19,32 +27,18 @@ function log() {
 	winston.log.apply(null, args);
 }
 
-function verbose() {
-	var args = Array.prototype.slice.call(arguments);
-	args.unshift('verbose');
-	log.apply(null, args);
-}
-
-function info() {
-	var args = Array.prototype.slice.call(arguments);
-	args.unshift('info');
-	log.apply(null, args);	
-}
-
-function warn() {
-	var args = Array.prototype.slice.call(arguments);
-	args.unshift('warn');
-	log.apply(null, args);	
-}
-
-function error() {
-	var args = Array.prototype.slice.call(arguments);
-	args.unshift('error');
-	log.apply(null, args);	
+/*
+ * Export helper methods for each log level
+ */
+for ( var index = 0; index < LOG_LEVELS.length; ++index ) {
+	var level = LOG_LEVELS[index];
+	(function(l) {
+		exports[l] = function() {
+			var args = Array.prototype.slice.call(arguments);
+			args.unshift(l);
+			log.apply(null, args);			
+		};
+	}(level));
 }
 
 exports.log = log;
-exports.verbose = verbose;
-exports.info = info;
-exports.warn = warn;
-exports.error = error;

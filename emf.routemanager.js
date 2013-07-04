@@ -48,7 +48,9 @@ RouteManager.prototype.add = function(pattern, controller, methods) {
 	}
 };
 
-
+/*
+ * Create helper methods for each of the HTTP methods
+ */
 for ( var index = 0; index < HTTP_METHODS.length; ++index ) {
 	var method = HTTP_METHODS[index];
 	(function(m) {
