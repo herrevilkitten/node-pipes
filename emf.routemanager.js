@@ -31,10 +31,10 @@ RouteManager.prototype.matchRoute = function(method, path) {
 	return null;
 };
 
-RouteManager.prototype.add = function(pattern, controller, methods) {
+RouteManager.prototype.add = function(pattern, controller, methods, parameters) {
 	methods = methods || [ 'GET' ];
-	var rte = (pattern instanceof route.Route) ? pattern : route.Route.create(
-			pattern, controller);
+	var rte = (pattern instanceof route.RegExp) ? pattern : route.create(
+			pattern, controller, parameters);
 	for ( var index = 0; index < methods.length; ++index) {
 		var method = methods[index].toUpperCase();
 
@@ -43,7 +43,7 @@ RouteManager.prototype.add = function(pattern, controller, methods) {
 		}
 		this.routes[method][this.routes[method].length] = rte;
 
-		logger.info('Added route %s %s with %s', method, rte.route,
+		logger.info('Added route %s %s with %s', method, rte.pattern,
 				controller.name ? controller.name : controller.constructor.name);
 	}
 };
@@ -54,8 +54,8 @@ RouteManager.prototype.add = function(pattern, controller, methods) {
 for ( var index = 0; index < HTTP_METHODS.length; ++index ) {
 	var method = HTTP_METHODS[index];
 	(function(m) {
-		RouteManager.prototype[method] = function(pattern, controller) {
-			this.add(pattern, controller, [m]);
+		RouteManager.prototype[method] = function(pattern, controller, parameters) {
+			this.add(pattern, controller, [m], parameters);
 		};
 	})(method);
 }
