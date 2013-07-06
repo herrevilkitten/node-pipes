@@ -1,35 +1,38 @@
-var
-	http = require('http'),
-	util = require('util'),
-	url = require('url')
-	;
+var http = require('http');
+var util = require('util');
+var url = require('url');
 
 var logger = require('./emf.logger');
+var GET = 'GET';
+var HEAD = 'HEAD';
+var POST = 'POST';
+var PUT = 'PUT';
+var DELETE = 'DELETE';
 
 /*
  * Create a new Route object by examining the route
  * and choosing the "best" match.
  */
-function create(route, controller, parameters) {
+function create(method, pattern, parameters) {
 	var routeObject = null;
-	if ( util.isRegExp(route) ) {
-		logger.info('Already a RegExpRoute');
-		routeObject = new RegExpRoute(route, controller, parameters);
-	} else if ( route.indexOf('*') > -1 || route.indexOf('?') > -1 ) {
+	method = method || GET;
+	if ( util.isRegExp(pattern) ) {
+		routeObject = new RegExpRoute(method, pattern, parameters);
+	} else if ( pattern.indexOf('*') > -1 || pattern.indexOf('?') > -1 ) {
 		/*
 		 * If it has a * or ?, it is a GlobRoute
 		 */
-		routeObject = new GlobRoute(route, controller, parameters);
-	} else if ( route.match(/[:=]\w+/g) ) {
+		routeObject = new GlobRoute(method, pattern, parameters);
+	} else if ( pattern.match(/[:=]\w+/g) ) {
 			/*
 		 * If it has :\w+ or =\w+, it is a NamedRoute
 		 */
-		routeObject = new NamedRoute(route, controller, parameters);
+		routeObject = new NamedRoute(method, pattern, parameters);
 	} else {
 		/*
 		 * Otherwise, assume it is a RegExpRoute
 		 */
-		routeObject = new RegExpRoute(route, controller, parameters);
+		routeObject = new RegExpRoute(method, pattern, parameters);
 	}
 	
 	return routeObject;
@@ -40,32 +43,84 @@ function create(route, controller, parameters) {
  * - Matched groups become controller parameters
  * - Parameters passed to controller as array
  */
-function RegExpRoute(route, controller, parameters) {
+function RegExpRoute(method, pattern, parameters) {
+	this.method = (method || GET).toUpperCase();
 	this.regexp = null;
-	this.pattern = route;
-	this.controller = controller;
+	this.pattern = pattern;
+	this.controllers = [];
 	this.routes = [];
-	this.parameters = parameters || [];
-	if ( util.isRegExp(route) ) {
-		this.regexp = route;
-	} else {
-		this.regexp = new RegExp('^' + route + '$');
+	this.parameterNames = [];
+	if ( parameters !== null && parameters !== undefined ) {
+		this.parameterNames = parameters;
 	}
+	if ( util.isRegExp(pattern) ) {
+		this.pattern = pattern.toString();
+		this.regexp = pattern;
+	} else {
+		this.regexp = new RegExp('^' + pattern + '$');
+	}
+
+	logger.info('Created route %s %s', method, pattern);
 }
 
-RegExpRoute.prototype.matches = function(url) {
-	var results = this.regexp.exec(url);
+var SIGNATURE_REGEXP = /^function\s+\w*\((.*)\)/i; 
+RegExpRoute.prototype.to = function(controller, parameters) {
+	if ( controller !== undefined && controller !== null ) {
+		this.controllers.push(controller);
+		var logString = util.format('To %s', controller.name ? controller.name : controller.constructor.name);
+		if ( parameters !== null && parameters !== undefined ) {
+			controller.parameters = parameters;
+		} else {
+			var signature = controller.toString();
+			var matches = SIGNATURE_REGEXP.exec(signature);
+			if ( matches !== null ) {
+				controller.parameters = matches[1].split(/\s*,\s*/g);
+			} else {
+				controller.parameters = [];
+			}			
+			logString += util.format(' with parameters %s', controller.parameters);
+			logger.info(logString);
+		}
+	}
+	
+	return this;
+};
+
+RegExpRoute.prototype.parameters = function(parameters) {
+	if ( parameters !== null && parameters !== undefined ) {
+		if ( util.isArray(parameters) ) {
+			this.parameterNames = parameters;
+		} else {
+			this.parameterNames = Array.prototype.slice.call(arguments);
+		}
+	} else {
+		this.parameterNames = [];
+	}
+	return this;
+};
+
+RegExpRoute.prototype.matches = function(method, path) {
+	if (method instanceof http.IncomingMessage) {
+		path = url.parse(method.url, false).path;
+		method = method.method;
+	}
+	method = method.toUpperCase();
+	
+	var results = this.regexp.exec(path);
 	if ( results === null ) {
 		return results;
 	}
 	
 	var map = {
+		route: this,
+		controllers: this.controllers,
 		input: url,
 		parameters: {}
 	};
+
 	for ( var index = 1; index < results.length; ++index ) {
-		if ( this.parameters.length > 0 ) {
-			map.parameters[this.parameters[index - 1]] = results[index];
+		if ( this.parameterNames.length > 0 ) {
+			map.parameters[this.parameterNames[index - 1]] = results[index];
 		}
 		map.parameters[index - 1] = results[index]; 
 	}
@@ -73,32 +128,22 @@ RegExpRoute.prototype.matches = function(url) {
 	return map;
 };
 
-
-/*
- * Static route: '/path'
- * - No parameters
- */
-function StaticRoute(route, controller) {
-	RegExpRoute.call(this, route, controller);
-}
-util.inherits(StaticRoute, RegExpRoute);
-
 /*
  * Glob route: '/path/*'
  * - Rewritten to be a RegExp:
  *   ? becomes (.)
  *   * becomes (.*)
  */
-function GlobRoute(route, controller, parameters) {
+function GlobRoute(method, pattern, parameters) {
 	/*
 	 * Convert the glob into a regular expression
 	 */
-	var pattern = route;
-	route = route.replace(/\?/g, '(.)').replace(/\*\*?/g, function(match) {
+	var original = pattern;
+	pattern = pattern.replace(/\?/g, '(.)').replace(/\*\*?/g, function(match) {
 		if ( match === '**' ) { return '(.*)'; } else { return '([^/]*)'; }
 	});
-	RegExpRoute.call(this, route, controller, parameters);
-	this.pattern = pattern;
+	RegExpRoute.call(this, method, pattern, parameters);
+	this.pattern = original;
 }
 util.inherits(GlobRoute, RegExpRoute);
 
@@ -107,15 +152,13 @@ util.inherits(GlobRoute, RegExpRoute);
  * - Rewritten to be a Glob:
  *   :[^/]+ becomes *
  */
-var NAMED_ROUTE_PATTERN = /[:=](\w+)/g;
-var OPTIONAL_NAMED_ROUTE_PATTERN = /:(\w+)/g;
-var REQUIRED_NAMED_ROUTE_PATTERN = /=(\w+)/g;
-function NamedRoute(route, controller) {
+var NAMED_ROUTE_PATTERN = /([:=]\w+)/g;
+function NamedRoute(method, pattern, controller) {
 	/*
 	 * Save the parameter names for the hash later
 	 */
 	var parameters = [];
-	var namedParams = route.match(NAMED_ROUTE_PATTERN);
+	var namedParams = pattern.match(NAMED_ROUTE_PATTERN);
 	if ( namedParams ) {
 		for ( var index = 0; index < namedParams.length; ++index ) {
 			parameters[index] = namedParams[index].substring(1);
@@ -124,29 +167,23 @@ function NamedRoute(route, controller) {
 	/*
 	 * Convert the named route into a regular expression
 	 */
-	route = route.replace(REQUIRED_NAMED_ROUTE_PATTERN, '(.+)').replace(OPTIONAL_NAMED_ROUTE_PATTERN, '(.*)');
-	RegExpRoute.call(this, route, controller, parameters);
+	var original = pattern;
+	pattern = pattern.replace(NAMED_ROUTE_PATTERN, function(match) {
+		if ( match[0] === ':' ) { return '(.*)'; } else { return '(.+)'; }
+	});
+	RegExpRoute.call(this, method, pattern, parameters);
+	this.pattern = original;
 }
 util.inherits(NamedRoute, RegExpRoute);
 
-NamedRoute.prototype.matches = function(url) {
-	var map = NamedRoute.super_.prototype.matches.call(this, url);
-	if ( map === null ) {
-		return map;
-	}
-	
-	var parameterMap = {};
-	for ( var index = 0; index < this.parameters.length; ++index ) {
-		var key = this.parameters[index];
-		var value = map.parameters[index];
-		parameterMap[key] = value;
-	}
-	map.parameters = parameterMap;
-	return map;
-};
-
 exports.RegExp = RegExpRoute;
-exports.Static = StaticRoute;
 exports.Glob = GlobRoute;
 exports.Named = NamedRoute;
 exports.create = create;
+exports.methods = {
+	'GET': GET,
+	'HEAD': HEAD,
+	'POST': POST,
+	'PUT': PUT,
+	'DELETE': DELETE
+};

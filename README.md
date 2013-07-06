@@ -6,14 +6,26 @@ This is mostly a learning exercise in how to work with node.js and asynchronous 
 
 ## Usage
 
+## Routing
 
+All routes are descendants of RegExpRoute, which uses regular expressions to match routes.
 
-## Developing
+### RegExpRoute
+
+### GlobRoute
+
+### NamedRoute
+
+### Filters
+
+## SASS Support
+
+SASS/SCSS is easily supported by using SassController.
 
 ## TODO
 
 * Better asynchronous support
-* Built-in support for SASS files
+* <s>Built-in support for SASS files</s>. Handled by SassController.
 * Templates
 * Security improvements
 * Session management

@@ -8,20 +8,13 @@ var route = require('./emf.route');
 var controller = require('./emf.controller');
 var routeManager = require('./emf.routemanager');
 
-function FilterManager() {
-		this.filters = [];
-}
-
-FilterManager.prototype.addFilter = function(filter) {
-	this.filters[this.filters.length] = filter;
-};
-
 function Application(options) {
 	this.options = options || {};
 
 	this.routes = new routeManager.RouteManager();
-	this.filterManager = new FilterManager();
 	this.eventManager = new events.EventEmitter();
+	this.httpServer = null;
+	this.ioServer = null;
 }
 
 Application.handleEvent = function(req, res, event) {
@@ -67,40 +60,70 @@ Application.handleError = function(req, res, event) {
 	Application.handleEvent(req, res, event);
 };
 
+var PARAMETER_INDEX = /param(?:eter)_?(\w+)/i;
+var REQUEST_INDEX = /req(?:uest)_?(\w+)/i;
+var SESSION_INDEX = /ses(?:sion)_?(\w+)/i;
 Application.prototype.requestHandler = function(req, res) {
+	res.setTimeout(this.options.timeout || 5000, function() {
+		Application.handleError(req, res, {
+			data : 'Request timed out'
+		});
+	});
+
+	req.parameters = {};
 	logger.info(req, 'New request');
 
-	for ( var index = 0; index < this.filterManager.filters.length; ++index) {
-		req = this.filterManager.filters[index](req, res);
-		if (req === undefined) {
-			res.end();
-			return;
-		}
-	}
-
-	var controller = this.routes.matchRoute(req);
-	if (controller !== undefined && controller !== null) {
-		logger.info(req, 'Controller is %s',
-				controller.name ? controller.name : controller.constructor.name);
-		res.setTimeout(this.options.timeout || 5000, function() {
-			Application.handleError(req, res, {
-				data : 'Request timed out'
-			});
-		});
-		if (controller instanceof events.EventEmitter) {
-			if (!controller.bound) {
-				logger.info('Listening to data and error controller events for %s',
-						controller.constructor.name);
-				controller.on('data', Application.handleData);
-				controller.on('error', Application.handleError);
-				controller.bound = true;
+	var result = this.routes.matchRoute(req);
+	if (result !== undefined && result !== null) {
+		console.error(result);
+		for (var ci = 0; ci < result.controllers.length; ++ci ) {
+			var controller = result.controllers[ci];
+			logger.info(req, 'Controller is %s',
+					controller.name ? controller.name : controller.constructor.name);
+			
+			var parameters = [];
+			for ( var index = 0; index < controller.parameters.length; ++index ) {
+				var parameter = controller.parameters[index];
+				var matches;
+				if ( parameter === 'req' || parameter === 'request' ) {
+					parameters.push(req);
+				} else if ( parameter === 'res' || parameter === 'response' ) {
+					parameters.push(res);
+				} else if ( parameter === 'controller' ) {
+					parameters.push(controller);
+				} else if ( parameter === 'params' || parameter === 'parameters' ) {
+					parameters.push(result.parameters);
+				} else if ( (matches = parameter.match(PARAMETER_INDEX)) !== null ) {
+					parameters.push(result.parameters[matches[1]]);
+				} else if ( (matches = parameter.match(REQUEST_INDEX)) !== null ) {
+					parameters.push(req.parameters[matches[1]]);
+				} else {
+					/*
+					 * Look up the parameter name in the following order:
+					 * - Route parameter list
+					 * - Request parameters
+					 * - Session parameters
+					 * - Set to null if now found
+					 */
+					console.error('Looking up %s', parameter);
+					console.error(result.parameters);
+					console.error(req.parameters);
+					if ( result.parameters[parameter] ) {
+						console.error('Parameter is %s', result.parameters[parameter]);
+						parameters.push(result.parameters[parameter]);
+					} else if ( req.parameters[parameter] ) {
+						console.error('Request parameter is %s', req.parameters[parameter]);
+						parameters.push(req.parameters[parameter]);						
+					} else {
+						parameters.push(null);						
+					}
+				}
 			}
-			controller.requestHandler(req, res);
-		} else {
-			controller(req, res, this.eventManager);
+			controller.apply(this, parameters);
+			
 		}
 	} else {
-		logger.error(req, 'No controller available to request');
+		logger.error(req, 'No controller available for request');
 		res.writeHead(500, {
 			'Content-Type' : 'text/plain'
 		});
@@ -117,7 +140,7 @@ Application.prototype.start = function() {
 	function onRequest(req, res) {
 		requestHandler.call(application, req, res);
 	}
-	http.createServer(onRequest).listen(listenPort, listenAddress);
+	this.httpServer = http.createServer(onRequest).listen(listenPort, listenAddress);
 	logger.info('Application listening on %s:%d', listenAddress, listenPort);
 };
 
