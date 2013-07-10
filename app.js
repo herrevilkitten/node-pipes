@@ -6,6 +6,9 @@ var jade = require('./emf.jade');
 var controller = require('./emf.controller').controller;
 
 var app = new emf.Application();
+
+app.routes.to(controller.parseCookies);
+
 var userRoute = app.routes.get('/users').to(function(session) {
 	console.error('Is the user is the session?');
 });

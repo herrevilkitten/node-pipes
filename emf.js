@@ -62,6 +62,71 @@ Application.handleError = function(req, res, event) {
 
 var PARAMETER_INDEX = /param(?:eter)_(\w+)/i;
 var REQUEST_INDEX = /req(?:uest)_(\w+)/i;
+function processController(controllers, state) {
+	var controller = controllers.shift();
+
+	var req = state.request;
+	var res = state.response;
+	var model = state.model;
+	var event = state.event;
+	var route = state.route;
+
+	logger.info(req, 'Controller is %s', controller.name ? controller.name
+			: controller.constructor.name);
+
+	var parameters = [];
+	if (controller.parameters) {
+		for ( var index = 0; index < controller.parameters.length; ++index) {
+			var parameter = controller.parameters[index];
+			var matches;
+			if (parameter === 'req' || parameter === 'request') {
+				parameters.push(req);
+			} else if (parameter === 'res' || parameter === 'response') {
+				parameters.push(res);
+			} else if (parameter === 'controller') {
+				parameters.push(controller);
+			} else if (parameter === 'params' || parameter === 'parameters') {
+				parameters.push(route.parameters);
+			} else if (parameter === 'model') {
+				parameters.push(model);
+			} else if (parameter === 'route') {
+				parameters.push(route);
+			} else if (parameter === 'args') {
+				parameters.push(controller.args);
+			} else if (parameter === 'event') {
+				parameters.push(event);
+			} else if ((matches = parameter.match(PARAMETER_INDEX)) !== null) {
+				parameters.push(route.parameters[matches[1]]);
+			} else if ((matches = parameter.match(REQUEST_INDEX)) !== null) {
+				parameters.push(req.parameters[matches[1]]);
+			} else {
+				if (controller.args[parameter]) {
+					parameters.push(controller.args[parameter]);
+				} else if (model[parameter]) {
+					parameters.push(model[parameter]);
+				} else if (route.parameters[parameter]) {
+					parameters.push(route.parameters[parameter]);
+				} else if (req.parameters[parameter]) {
+					parameters.push(req.parameters[parameter]);
+				} else {
+					parameters.push(null);
+				}
+			}
+		}
+	}
+
+	try {
+		controller.apply(null, parameters);
+	} catch (e) {
+		event.emit('error', e);
+		return;
+	}
+
+	if (controllers.length > 0) {
+		event.emit('next', controllers, state);
+	}
+}
+
 Application.prototype.requestHandler = function(req, res) {
 	res.setTimeout(this.options.timeout || 5000, function() {
 		Application.handleError(req, res, {
@@ -84,61 +149,31 @@ Application.prototype.requestHandler = function(req, res) {
 	 * framework and controllers
 	 */
 	var event = new events.EventEmitter();
+	
+	/*
+	 * Find the route that matches this request
+	 */
 	var route = this.routes.matches(req);
-	if (route !== undefined && route !== null) {
-		for ( var ci = 0; ci < route.controllers.length; ++ci) {
-			var controller = route.controllers[ci];
-			logger.info(req, 'Controller is %s', controller.name ? controller.name
-					: controller.constructor.name);
 
-			var parameters = [];
-			if (controller.parameters) {
-				for ( var index = 0; index < controller.parameters.length; ++index) {
-					var parameter = controller.parameters[index];
-					var matches;
-					if (parameter === 'req' || parameter === 'request') {
-						parameters.push(req);
-					} else if (parameter === 'res' || parameter === 'response') {
-						parameters.push(res);
-					} else if (parameter === 'controller') {
-						parameters.push(controller);
-					} else if (parameter === 'params' || parameter === 'parameters') {
-						parameters.push(route.parameters);
-					} else if (parameter === 'model') {
-						parameters.push(model);
-					} else if (parameter === 'args') {
-						parameters.push(controller.args);
-					} else if (parameter === 'event') {
-						parameters.push(event);
-					} else if ((matches = parameter.match(PARAMETER_INDEX)) !== null) {
-						parameters.push(parameters[matches[1]]);
-					} else if ((matches = parameter.match(REQUEST_INDEX)) !== null) {
-						parameters.push(req.parameters[matches[1]]);
-					} else {
-						/*
-						 * Look up the name in the following order: - Model - Route
-						 * parameters - Request parameters - Session parameters - Method
-						 * 'args' if it's an object-type - null if not found
-						 */
-						if (controller.args[parameter]) {
-							parameters.push(controller.args[parameter]);
-						} else if (model[parameter]) {
-							parameters.push(model[parameter]);
-						} else if (route.parameters[parameter]) {
-							parameters.push(route.parameters[parameter]);
-						} else if (req.parameters[parameter]) {
-							parameters.push(req.parameters[parameter]);
-						} else {
-							parameters.push(null);
-						}
-					}
-				}
-			}
-			var rc = controller.apply(this, parameters);
-			if (rc === false) {
-				break;
-			}
-		}
+	if (route !== undefined && route !== null) {
+		var state = {
+			request : req,
+			response : res,
+			model : model,
+			event : event,
+			route : route
+		};
+
+		event.on('error', function(e) {
+			Application.handleError(req, res);
+		});
+
+		event.on('next', processController);
+
+		event.on('done', function() {
+		});
+
+		event.emit('next', route.controllers, state);
 	} else {
 		logger.error(req, 'No controller available for request');
 		res.writeHead(500, {
