@@ -3,96 +3,106 @@ var fs = require('fs');
 var url = require('url');
 var path = require('path');
 var http = require('http');
-var events = require('events');
 var mime = require('./emf.mime');
 var logger = require('./emf.logger');
+var events = require('events');
+var cookie = require('tough-cookie').Cookie;
 
-function Controller(options) {
-	events.EventEmitter.call(this);
-	this.bound = false;
+function fileNotFound(event) {
+	event.emit('error', {statusCode: 404});
 }
-util.inherits(Controller, events.EventEmitter);
 
-Controller.prototype.requestHandler = function(req, res) {
-	this.emit('data', req, res, {data: '\n'});
-};
+function sendFile(filename, args, event, res) {
+	var baseDirectory = args.baseDirectory || process.cwd();
+	filename = path.normalize(path.join(baseDirectory, filename));		
 
-function NotFoundController() {
-	Controller.call(this);
-}
-util.inherits(FileController, Controller);
+	logger.info('Checking for existence of %s', filename);
+	if ( !fs.existsSync(filename) ) {
+//		event.emit('error', req, res, {statusCode: 404});
+		return;
+	}
 
-NotFoundController.prototype.requestHandler = function(req, res) {
-	this.emit('error', req, res, {statusCode: 404});
-};
+	if ( filename.indexOf(baseDirectory) !== 0 ) {
+//		controller.emit('error', req, res, {statusCode: 403});
+		return;
+	}
 
-function FileController(options) {
-	options = options || {};
-	Controller.call(this, options);
-
-	this.baseDirectory = options.baseDirectory || process.cwd();
-}
-util.inherits(FileController, Controller);
-
-FileController.prototype.requestHandler = function(req, res) {
-	this.handleFile(req, res, null, this.fileCallback);
-};
-
-FileController.prototype.fileCallback = function(req, res, filePath, data) {
-	var contentType = mime.lookup(filePath);
+	var contentType = mime.lookup(filename);
 	if ( contentType === undefined ) {
 		logger.warn('No MIME type defined for %s', filePath);
 		contentType = 'text/plain';
 	}
-	this.emit('data', req, res, {data: data, headers: { 'Content-Type': contentType}});
-};
+	
+	var readStream = fs.createReadStream(filename);
+	readStream.pipe(res);
+}
 
-FileController.prototype.handleFile = function(req, res, filePath, callback) {
-	var controller = this;
-	if ( filePath === null || filePath === undefined ) {
-		var reqPath = url.parse(req.url, false).path;
-		filePath = path.normalize(path.join(this.baseDirectory, reqPath));		
-	}
+function streamFile(filename, args, model) {
+	var baseDirectory = args.baseDirectory || process.cwd();
+	filename = path.normalize(path.join(baseDirectory, filename));		
 
-	logger.info('Reading %s', filePath);
-	if ( !fs.existsSync(filePath) ) {
-		controller.emit('error', req, res, {statusCode: 404});
+	logger.info('Checking for existence of %s', filename);
+	if ( !fs.existsSync(filename) ) {
+//		event.emit('error', req, res, {statusCode: 404});
 		return;
 	}
 
-	if ( filePath.indexOf(this.baseDirectory) !== 0 ) {
-		controller.emit('error', req, res, {statusCode: 403});
+	if ( filename.indexOf(baseDirectory) !== 0 ) {
+//		controller.emit('error', req, res, {statusCode: 403});
 		return;
 	}
-		
-	fs.readFile(filePath, function(err, data) {
-		if (err) {
-			controller.emit('error', req, res, {statusCode: 404});
+
+	var mimeType = mime.lookup(filename);
+	if ( mimeType === undefined ) {
+		logger.warn('No MIME type defined for %s', filePath);
+		mimeType = 'binary/octet-stream';
+	}
+	
+	var readStream = fs.createReadStream(filename);
+	readStream.mimeType = mimeType;
+	model.readStream = readStream;
+}
+
+function sendStream(readStream, res) {
+	if ( readStream === null || readStream === undefined ) {
+		return;
+	}
+
+	res.setHeader('Content-Type', readStream.mimeType);
+	readStream.pipe(res);
+}
+
+function parseCookies(req) {
+	var cookieList = [];
+	var cookies = {};
+	var cookieMap = {};
+
+	if ( req.headers['set-cookie'] ) {
+		if (util.isArray(req.headers['set-cookie'])) {
+			cookieList = req.headers['set-cookie'].map(cookie.parse);
 		} else {
-			callback.call(controller, req, res, filePath, data);
+			cookieList = [ cookie.parse(req.headers['set-cookie']) ];
+		}		
+
+		for ( var index = 0; index < cookieList.length; ++index) {
+			var key = cookieList[index].key;
+			cookies[key] = cookieList[index];
+			cookieMap[key] = cookieList[index].value;
 		}
-	});
+		
+		req.cookies = cookies;
+	}
+}
+
+function end(res) {
+	res.end();
+}
+
+exports.controller = {
+	'fileNotFound': fileNotFound,
+	'sendFile': sendFile,
+	'sendStream': sendStream,
+	'streamFile': streamFile,
+	'parseCookies': parseCookies,
+	'end': end
 };
-
-function ResourceController(options) {
-	options = options || {};
-	FileController.call(this, {
-		baseDirectory: options.baseDirectory || path.join(process.cwd(), 'resources')
-	});
-}
-util.inherits(ResourceController, FileController);
-
-function PublicController(options) {
-	options = options || {};
-	FileController.call(this, {
-		baseDirectory: options.baseDirectory || path.join(process.cwd(), 'public')
-	});
-}
-util.inherits(PublicController, FileController);
-
-Controller.NotFound = NotFoundController;
-Controller.File = FileController;
-Controller.Resource = ResourceController;
-Controller.Public = PublicController;
-
-exports.Controller = Controller;

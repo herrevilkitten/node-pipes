@@ -1,22 +1,23 @@
-var http = require('http');
-var url = require('url');
-var util = require('util');
+var path = require('path');
 var emf = require('./emf');
-var logger = require('winston');
 
-var sass = require('./emf.sass');
+//var sass = require('./emf.sass');
+var jade = require('./emf.jade');
+var controller = require('./emf.controller').controller;
 
 var app = new emf.Application();
-app.routes.get(':filename').to(function(req) {
-	for ( var index = 0; index < arguments.length; ++index ) {
-		console.error('argument[%d]: %s', index, arguments[index]);
-	}
-	req.parameters.happiness = 1;
-}).to(function(req, happiness) {
-	for ( var index = 0; index < arguments.length; ++index ) {
-		console.error('argument[%d]: %s', index, arguments[index]);
-	}
+var userRoute = app.routes.get('/users').to(function(session) {
+	console.error('Is the user is the session?');
 });
+
+userRoute.get('/logout').to(function(req) {
+	console.error('omg, logout!');
+});
+
+app.routes.get(':filename')
+	.to(controller.streamFile, {baseDirectory: path.join(process.cwd(), 'public')})
+	.to(controller.sendStream);
+
 
 app.start();
 

@@ -2,17 +2,18 @@ var http = require('http');
 var util = require('util');
 var url = require('url');
 var events = require('events');
+var cookie = require('tough-cookie').Cookie;
 var logger = require('./emf.logger');
 
-var route = require('./emf.route');
 var controller = require('./emf.controller');
-var routeManager = require('./emf.routemanager');
+
+var route = require('./emf.route');
 
 function Application(options) {
 	this.options = options || {};
 
-	this.routes = new routeManager.RouteManager();
-	this.eventManager = new events.EventEmitter();
+	this.routes = route.create('GET', '');
+	this.events = new events.EventEmitter();
 	this.httpServer = null;
 	this.ioServer = null;
 }
@@ -53,16 +54,14 @@ Application.handleError = function(req, res, event) {
 	}
 
 	if (event.data === undefined) {
-		event.data = 'An error has occurred while processing this request.\n\n'
-				+ req.url + '\n\n' + event.statusCode + ' '
-				+ http.STATUS_CODES[event.statusCode] + '\n';
+		event.data = 'An error has occurred while processing this request.\n\n' + req.url + '\n\n'
+				+ event.statusCode + ' ' + http.STATUS_CODES[event.statusCode] + '\n';
 	}
 	Application.handleEvent(req, res, event);
 };
 
-var PARAMETER_INDEX = /param(?:eter)_?(\w+)/i;
-var REQUEST_INDEX = /req(?:uest)_?(\w+)/i;
-var SESSION_INDEX = /ses(?:sion)_?(\w+)/i;
+var PARAMETER_INDEX = /param(?:eter)_(\w+)/i;
+var REQUEST_INDEX = /req(?:uest)_(\w+)/i;
 Application.prototype.requestHandler = function(req, res) {
 	res.setTimeout(this.options.timeout || 5000, function() {
 		Application.handleError(req, res, {
@@ -70,57 +69,75 @@ Application.prototype.requestHandler = function(req, res) {
 		});
 	});
 
-	req.parameters = {};
 	logger.info(req, 'New request');
 
-	var result = this.routes.matchRoute(req);
-	if (result !== undefined && result !== null) {
-		console.error(result);
-		for (var ci = 0; ci < result.controllers.length; ++ci ) {
-			var controller = result.controllers[ci];
-			logger.info(req, 'Controller is %s',
-					controller.name ? controller.name : controller.constructor.name);
-			
+	var requestUrl = url.parse(req.url, true);
+	req.parameters = requestUrl.query;
+
+	/*
+	 * The model object allows controllers to pass data down the line
+	 */
+	var model = {};
+
+	/*
+	 * The event object allows asynchronous and OOB communication between the
+	 * framework and controllers
+	 */
+	var event = new events.EventEmitter();
+	var route = this.routes.matches(req);
+	if (route !== undefined && route !== null) {
+		for ( var ci = 0; ci < route.controllers.length; ++ci) {
+			var controller = route.controllers[ci];
+			logger.info(req, 'Controller is %s', controller.name ? controller.name
+					: controller.constructor.name);
+
 			var parameters = [];
-			for ( var index = 0; index < controller.parameters.length; ++index ) {
-				var parameter = controller.parameters[index];
-				var matches;
-				if ( parameter === 'req' || parameter === 'request' ) {
-					parameters.push(req);
-				} else if ( parameter === 'res' || parameter === 'response' ) {
-					parameters.push(res);
-				} else if ( parameter === 'controller' ) {
-					parameters.push(controller);
-				} else if ( parameter === 'params' || parameter === 'parameters' ) {
-					parameters.push(result.parameters);
-				} else if ( (matches = parameter.match(PARAMETER_INDEX)) !== null ) {
-					parameters.push(result.parameters[matches[1]]);
-				} else if ( (matches = parameter.match(REQUEST_INDEX)) !== null ) {
-					parameters.push(req.parameters[matches[1]]);
-				} else {
-					/*
-					 * Look up the parameter name in the following order:
-					 * - Route parameter list
-					 * - Request parameters
-					 * - Session parameters
-					 * - Set to null if now found
-					 */
-					console.error('Looking up %s', parameter);
-					console.error(result.parameters);
-					console.error(req.parameters);
-					if ( result.parameters[parameter] ) {
-						console.error('Parameter is %s', result.parameters[parameter]);
-						parameters.push(result.parameters[parameter]);
-					} else if ( req.parameters[parameter] ) {
-						console.error('Request parameter is %s', req.parameters[parameter]);
-						parameters.push(req.parameters[parameter]);						
+			if (controller.parameters) {
+				for ( var index = 0; index < controller.parameters.length; ++index) {
+					var parameter = controller.parameters[index];
+					var matches;
+					if (parameter === 'req' || parameter === 'request') {
+						parameters.push(req);
+					} else if (parameter === 'res' || parameter === 'response') {
+						parameters.push(res);
+					} else if (parameter === 'controller') {
+						parameters.push(controller);
+					} else if (parameter === 'params' || parameter === 'parameters') {
+						parameters.push(route.parameters);
+					} else if (parameter === 'model') {
+						parameters.push(model);
+					} else if (parameter === 'args') {
+						parameters.push(controller.args);
+					} else if (parameter === 'event') {
+						parameters.push(event);
+					} else if ((matches = parameter.match(PARAMETER_INDEX)) !== null) {
+						parameters.push(parameters[matches[1]]);
+					} else if ((matches = parameter.match(REQUEST_INDEX)) !== null) {
+						parameters.push(req.parameters[matches[1]]);
 					} else {
-						parameters.push(null);						
+						/*
+						 * Look up the name in the following order: - Model - Route
+						 * parameters - Request parameters - Session parameters - Method
+						 * 'args' if it's an object-type - null if not found
+						 */
+						if (controller.args[parameter]) {
+							parameters.push(controller.args[parameter]);
+						} else if (model[parameter]) {
+							parameters.push(model[parameter]);
+						} else if (route.parameters[parameter]) {
+							parameters.push(route.parameters[parameter]);
+						} else if (req.parameters[parameter]) {
+							parameters.push(req.parameters[parameter]);
+						} else {
+							parameters.push(null);
+						}
 					}
 				}
 			}
-			controller.apply(this, parameters);
-			
+			var rc = controller.apply(this, parameters);
+			if (rc === false) {
+				break;
+			}
 		}
 	} else {
 		logger.error(req, 'No controller available for request');
@@ -144,6 +161,6 @@ Application.prototype.start = function() {
 	logger.info('Application listening on %s:%d', listenAddress, listenPort);
 };
 
-exports.Route = route.Route;
+exports.Route = require('./emf.route');
 exports.Controller = controller.Controller;
 exports.Application = Application;
