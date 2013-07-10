@@ -3,11 +3,11 @@ var util = require('util');
 var url = require('url');
 
 var logger = require('./emf.logger');
-var GET = 'GET';
-var HEAD = 'HEAD';
-var POST = 'POST';
-var PUT = 'PUT';
-var DELETE = 'DELETE';
+var GET = 0x01;
+var HEAD = 0x02;
+var POST = 0x04;
+var PUT = 0x08;
+var DELETE = 0x10;
 
 exports.methods = {
 	'GET' : GET,
@@ -23,6 +23,11 @@ exports.methods = {
 function create(method, pattern, parameters) {
 	var routeObject = null;
 	method = method || GET;
+	if ( util.isArray(method) ) {
+		method = method.reduce(function(prev, curr) {
+			return prev | curr;
+		});
+	}
 	if (util.isRegExp(pattern)) {
 		routeObject = new RegExpRoute(method, pattern, parameters);
 	} else if (pattern.indexOf('*') > -1 || pattern.indexOf('?') > -1) {
@@ -50,7 +55,7 @@ function create(method, pattern, parameters) {
  * Parameters passed to controller as array
  */
 function RegExpRoute(method, pattern, parameters) {
-	this.method = (method || GET).toUpperCase();
+	this.method = (method || GET);
 	this.regexp = null;
 	this.pattern = pattern;
 	this.controllers = [];
@@ -117,7 +122,7 @@ RegExpRoute.prototype.parameters = function(parameters) {
 
 RegExpRoute.prototype.add = function(method, pattern, parameters) {
 	var completePattern = this.pattern + pattern;
-	method = (method || route.methods.GET).toUpperCase();
+	method = (method || route.methods.GET);
 	var rte = create(method, completePattern, parameters);
 	this.routes.push(rte);
 
@@ -134,7 +139,7 @@ RegExpRoute.prototype.add = function(method, pattern, parameters) {
 for ( var method in exports.methods) {
 	(function(m) {
 		RegExpRoute.prototype[m.toLowerCase()] = function(pattern, parameters) {
-			return this.add(m.toUpperCase(), pattern, parameters);
+			return this.add(exports.methods[m.toUpperCase()], pattern, parameters);
 		};
 	})(method);
 }

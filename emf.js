@@ -62,14 +62,14 @@ Application.handleError = function(req, res, event) {
 
 var PARAMETER_INDEX = /param(?:eter)_(\w+)/i;
 var REQUEST_INDEX = /req(?:uest)_(\w+)/i;
-function processController(controllers, state) {
+function processController(controllers, requestState) {
 	var controller = controllers.shift();
 
-	var req = state.request;
-	var res = state.response;
-	var model = state.model;
-	var event = state.event;
-	var route = state.route;
+	var req = requestState.request;
+	var res = requestState.response;
+	var state = requestState.state;
+	var event = requestState.event;
+	var route = requestState.route;
 
 	logger.info(req, 'Controller is %s', controller.name ? controller.name
 			: controller.constructor.name);
@@ -87,8 +87,8 @@ function processController(controllers, state) {
 				parameters.push(controller);
 			} else if (parameter === 'params' || parameter === 'parameters') {
 				parameters.push(route.parameters);
-			} else if (parameter === 'model') {
-				parameters.push(model);
+			} else if (parameter === 'state') {
+				parameters.push(state);
 			} else if (parameter === 'route') {
 				parameters.push(route);
 			} else if (parameter === 'args') {
@@ -102,8 +102,8 @@ function processController(controllers, state) {
 			} else {
 				if (controller.args[parameter]) {
 					parameters.push(controller.args[parameter]);
-				} else if (model[parameter]) {
-					parameters.push(model[parameter]);
+				} else if (state[parameter]) {
+					parameters.push(state[parameter]);
 				} else if (route.parameters[parameter]) {
 					parameters.push(route.parameters[parameter]);
 				} else if (req.parameters[parameter]) {
@@ -118,6 +118,7 @@ function processController(controllers, state) {
 	try {
 		controller.apply(null, parameters);
 	} catch (e) {
+		console.error(e);
 		event.emit('error', e);
 		return;
 	}
@@ -140,9 +141,9 @@ Application.prototype.requestHandler = function(req, res) {
 	req.parameters = requestUrl.query;
 
 	/*
-	 * The model object allows controllers to pass data down the line
+	 * The state object allows pipes to pass data down the line
 	 */
-	var model = {};
+	var state = {};
 
 	/*
 	 * The event object allows asynchronous and OOB communication between the
@@ -156,10 +157,10 @@ Application.prototype.requestHandler = function(req, res) {
 	var route = this.routes.matches(req);
 
 	if (route !== undefined && route !== null) {
-		var state = {
+		var requestState = {
 			request : req,
 			response : res,
-			model : model,
+			state : state,
 			event : event,
 			route : route
 		};
@@ -173,7 +174,7 @@ Application.prototype.requestHandler = function(req, res) {
 		event.on('done', function() {
 		});
 
-		event.emit('next', route.controllers, state);
+		event.emit('next', route.controllers, requestState);
 	} else {
 		logger.error(req, 'No controller available for request');
 		res.writeHead(500, {

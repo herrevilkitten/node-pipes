@@ -9,14 +9,6 @@ var app = new emf.Application();
 
 app.routes.to(controller.parseCookies);
 
-var userRoute = app.routes.get('/users').to(function(session) {
-	console.error('Is the user is the session?');
-});
-
-userRoute.get('/logout').to(function(req) {
-	console.error('omg, logout!');
-});
-
 app.routes.get(':filename')
 	.to(controller.streamFile, {baseDirectory: path.join(process.cwd(), 'public')})
 	.to(controller.sendStream);
