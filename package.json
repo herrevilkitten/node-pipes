@@ -1,7 +1,7 @@
 {
-  "name": "emf",
+  "name": "node-pipes",
   "version": "0.1.0",
-  "description": "Eric's MVC Framework: an experimental MVC framework being built to learn nodejs",
+  "description": "node.js implementation of Eric Kidder's Pipes webapp framework",
   "main": "emf.js",
   "author": "Eric Kidder",
   "homepage": "https://bitbucket.org/kageneko/node-emf",

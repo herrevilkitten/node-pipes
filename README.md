@@ -24,13 +24,12 @@ SASS/SCSS is easily supported by using SassController.
 
 ## TODO
 
-* Better asynchronous support
 * <s>Built-in support for SASS files</s>. Handled by SassController.
 * Templates
 * Security improvements
 * Session management
 * WebSocket support
-* Route refactoring
+* Pipes object decoration
 
 ## Dependencies
 

@@ -1,18 +1,19 @@
 var path = require('path');
-var emf = require('./emf');
+var pipes = require('./pipes');
 
-//var sass = require('./emf.sass');
-var jade = require('./emf.jade');
-var controller = require('./emf.controller').controller;
-
-var app = new emf.Application();
-
-app.routes.to(controller.parseCookies);
+var app = new pipes.Application();
+/*
+app.decorate('request').with({
+  cookies: function() {},
+  stuff: a
+});
+*/
 
 app.routes.get(':filename')
-	.to(controller.streamFile, {baseDirectory: path.join(process.cwd(), 'public')})
-	.to(controller.sendStream);
+	.to(pipes.pipe.streamFile, {baseDirectory: path.join(process.cwd(), 'public')})
+	;
 
+app.routes.then(pipes.pipe.zipStream).then(pipes.pipe.sendStream);
 
 app.start();
 

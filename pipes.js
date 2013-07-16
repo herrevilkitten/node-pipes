@@ -2,89 +2,45 @@ var http = require('http');
 var util = require('util');
 var url = require('url');
 var events = require('events');
-var cookie = require('tough-cookie').Cookie;
-var logger = require('./emf.logger');
 
-var controller = require('./emf.controller');
-
-var route = require('./emf.route');
+var logger = require('./lib/logger');
+var pipe = require('./lib/pipe');
+var route = require('./lib/route');
+var error = require('./lib/error');
 
 function Application(options) {
 	this.options = options || {};
 
-	this.routes = route.create('GET', '');
-	this.events = new events.EventEmitter();
-	this.httpServer = null;
-	this.ioServer = null;
+	this.routes = route.create(route.methods.ALL, '');
+	this.http = null;
+	this.io = null;
 }
-
-Application.handleEvent = function(req, res, event) {
-	event = event || {};
-	if (req === undefined || res === undefined) {
-		return;
-	}
-
-	res.statusCode = event.statusCode;
-	if (event.headers !== undefined) {
-		res.writeHead(res.statusCode, event.headers);
-	}
-	res.write(event.data);
-	res.end();
-
-	logger.info(req, 'responding with %d', res.statusCode);
-};
-
-Application.handleData = function(req, res, event) {
-	event = event || {};
-	if (event.statusCode === undefined) {
-		event.statusCode = 200;
-	}
-
-	if (event.data === undefined) {
-		event.data = '\n';
-	}
-
-	Application.handleEvent(req, res, event);
-};
-
-Application.handleError = function(req, res, event) {
-	event = event || {};
-	if (event.statusCode === undefined) {
-		event.statusCode = 500;
-	}
-
-	if (event.data === undefined) {
-		event.data = 'An error has occurred while processing this request.\n\n' + req.url + '\n\n'
-				+ event.statusCode + ' ' + http.STATUS_CODES[event.statusCode] + '\n';
-	}
-	Application.handleEvent(req, res, event);
-};
+util.inherits(Application, events.EventEmitter);
 
 var PARAMETER_INDEX = /param(?:eter)_(\w+)/i;
 var REQUEST_INDEX = /req(?:uest)_(\w+)/i;
-function processController(controllers, requestState) {
-	var controller = controllers.shift();
-
+function processPipe(event) {
+	var pipe = event.pipes.shift();
+	var requestState = event.state;
 	var req = requestState.request;
 	var res = requestState.response;
 	var state = requestState.state;
-	var event = requestState.event;
 	var route = requestState.route;
 
-	logger.info(req, 'Controller is %s', controller.name ? controller.name
-			: controller.constructor.name);
+	logger.info(req, 'Pipe is %s', pipe.name ? pipe.name
+			: pipe.constructor.name);
 
 	var parameters = [];
-	if (controller.parameters) {
-		for ( var index = 0; index < controller.parameters.length; ++index) {
-			var parameter = controller.parameters[index];
+	if (pipe.parameters) {
+		for ( var index = 0; index < pipe.parameters.length; ++index) {
+			var parameter = pipe.parameters[index];
 			var matches;
 			if (parameter === 'req' || parameter === 'request') {
 				parameters.push(req);
 			} else if (parameter === 'res' || parameter === 'response') {
 				parameters.push(res);
-			} else if (parameter === 'controller') {
-				parameters.push(controller);
+			} else if (parameter === 'pipe') {
+				parameters.push(pipe);
 			} else if (parameter === 'params' || parameter === 'parameters') {
 				parameters.push(route.parameters);
 			} else if (parameter === 'state') {
@@ -92,7 +48,7 @@ function processController(controllers, requestState) {
 			} else if (parameter === 'route') {
 				parameters.push(route);
 			} else if (parameter === 'args') {
-				parameters.push(controller.args);
+				parameters.push(pipe.args);
 			} else if (parameter === 'event') {
 				parameters.push(event);
 			} else if ((matches = parameter.match(PARAMETER_INDEX)) !== null) {
@@ -100,8 +56,8 @@ function processController(controllers, requestState) {
 			} else if ((matches = parameter.match(REQUEST_INDEX)) !== null) {
 				parameters.push(req.parameters[matches[1]]);
 			} else {
-				if (controller.args[parameter]) {
-					parameters.push(controller.args[parameter]);
+				if (pipe.args[parameter]) {
+					parameters.push(pipe.args[parameter]);
 				} else if (state[parameter]) {
 					parameters.push(state[parameter]);
 				} else if (route.parameters[parameter]) {
@@ -114,27 +70,29 @@ function processController(controllers, requestState) {
 			}
 		}
 	}
-
+	
 	try {
-		controller.apply(null, parameters);
+		var rc = pipe.apply(null, parameters);
+		if ( rc !== undefined && rc === false ) {
+			event.emit('done');
+		}
+
+		if (event.pipes.length > 0) {
+			event.next();
+		} else {
+			event.emit('done');			
+		}
 	} catch (e) {
-		console.error(e);
+		logger.error('Exception during pipe:', util.inspect(e));
+		if ( e.stack !== undefined ) {
+			logger.error(e.stack);
+		}
 		event.emit('error', e);
 		return;
-	}
-
-	if (controllers.length > 0) {
-		event.emit('next', controllers, state);
 	}
 }
 
 Application.prototype.requestHandler = function(req, res) {
-	res.setTimeout(this.options.timeout || 5000, function() {
-		Application.handleError(req, res, {
-			data : 'Request timed out'
-		});
-	});
-
 	logger.info(req, 'New request');
 
 	var requestUrl = url.parse(req.url, true);
@@ -147,7 +105,7 @@ Application.prototype.requestHandler = function(req, res) {
 
 	/*
 	 * The event object allows asynchronous and OOB communication between the
-	 * framework and controllers
+	 * framework and pipes
 	 */
 	var event = new events.EventEmitter();
 	
@@ -164,19 +122,34 @@ Application.prototype.requestHandler = function(req, res) {
 			event : event,
 			route : route
 		};
+		event.pipes = route.pipes;
+		event.state = requestState;
+		event.next = function() {
+			this.emit('next');
+		};
+
+		event.error = function(e) {
+			this.emit('error', e);
+		};
 
 		event.on('error', function(e) {
-			Application.handleError(req, res);
+			pipe.sendError(e.statusCode, e.statusMessage, req, res);
 		});
-
-		event.on('next', processController);
+		
+		event.on('next', function() {
+			processPipe(event);
+		});
 
 		event.on('done', function() {
 		});
 
-		event.emit('next', route.controllers, requestState);
+		res.setTimeout(this.options.timeout || 5000, function() {
+			event.error(new error.HttpError(500, 'Request timed out.'));
+		});
+
+		event.next();
 	} else {
-		logger.error(req, 'No controller available for request');
+		logger.error(req, 'No pipe available for request');
 		res.writeHead(500, {
 			'Content-Type' : 'text/plain'
 		});
@@ -193,10 +166,15 @@ Application.prototype.start = function() {
 	function onRequest(req, res) {
 		requestHandler.call(application, req, res);
 	}
+	
+	this.emit('init');
 	this.httpServer = http.createServer(onRequest).listen(listenPort, listenAddress);
+	this.emit('start');
+
 	logger.info('Application listening on %s:%d', listenAddress, listenPort);
 };
 
-exports.Route = require('./emf.route');
-exports.Controller = controller.Controller;
+exports.route = route;
+exports.logger = logger;
+exports.pipe = pipe;
 exports.Application = Application;
