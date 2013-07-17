@@ -2,11 +2,10 @@
   "name": "node-pipes",
   "version": "0.1.0",
   "description": "node.js implementation of Eric Kidder's Pipes webapp framework",
-  "main": "emf.js",
-  "author": "Eric Kidder",
-  "homepage": "https://bitbucket.org/kageneko/node-emf",
+  "main": "pipes.js",
+  "author": "Eric Kidder <kageneko@evilkitten.org>",
+  "homepage": "https://bitbucket.org/kageneko/node-pipes",
   "scripts": {
-    "test": "jasmine-node spec"
   },
   "repository": {
   	"type": "git",
@@ -18,13 +17,12 @@
   "dependencies": {
   	"mime": ">= 1.2.9",
   	"strftime": ">= 0.6.1",
-  	"socket.io": ">= 0.9.16",
   	"winston": ""
   	
   },
   "devDependencies": {
   	"jasmine-node": ">= 1.3.1"
   },
-  "license": "BSD",
+  "license": "Apache2.0",
   "readmeFilename": "README.md"
 }
