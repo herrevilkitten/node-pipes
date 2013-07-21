@@ -1,19 +1,13 @@
 var path = require('path');
-var pipes = require('./pipes');
+var Pipes = require('./pipes');
 
-var app = new pipes.Application();
-/*
-app.decorate('request').with({
-  cookies: function() {},
-  stuff: a
-});
-*/
+var app = new Pipes({listenPort: 8888});
 
-app.routes.get(':filename')
-	.to(pipes.pipe.streamFile, {baseDirectory: path.join(process.cwd(), 'public')})
+app.routes.all(':filename')
+	.to(Pipes.pipe.streamFile, {baseDirectory: path.join(process.cwd(), 'public')})
 	;
 
-app.routes.then(pipes.pipe.zipStream).then(pipes.pipe.sendStream);
+app.routes.then(Pipes.pipe.zipStream).then(Pipes.pipe.sendStream);
 
 app.start();
 

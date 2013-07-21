@@ -8,27 +8,27 @@ var pipe = require('./lib/pipe');
 var route = require('./lib/route');
 var error = require('./lib/error');
 
-function Application(options) {
+function Main(options) {
 	this.options = options || {};
 
 	this.routes = route.create(route.methods.ALL, '');
 	this.http = null;
 	this.io = null;
 }
-util.inherits(Application, events.EventEmitter);
+util.inherits(Main, events.EventEmitter);
 
 var PARAMETER_INDEX = /param(?:eter)_(\w+)/i;
 var REQUEST_INDEX = /req(?:uest)_(\w+)/i;
 function processPipe(event) {
 	var pipe = event.pipes.shift();
-	var requestState = event.state;
-	var req = requestState.request;
-	var res = requestState.response;
-	var state = requestState.state;
-	var route = requestState.route;
+	var pipeflow = event.state;
+	var req = pipeflow.request;
+	var res = pipeflow.response;
+	var state = pipeflow.state;
+	var route = pipeflow.route;
+	var main = pipeflow.main;
 
-	logger.info(req, 'Pipe is %s', pipe.name ? pipe.name
-			: pipe.constructor.name);
+	logger.debug(req, 'Pipe is %s', pipe.name ? pipe.name : pipe.constructor.name);
 
 	var parameters = [];
 	if (pipe.parameters) {
@@ -70,29 +70,28 @@ function processPipe(event) {
 			}
 		}
 	}
-	
+
 	try {
 		var rc = pipe.apply(null, parameters);
-		if ( rc !== undefined && rc === false ) {
+		if ((rc !== undefined && rc === false) || event.pipes.length === 0) {
 			event.emit('done');
-		}
-
-		if (event.pipes.length > 0) {
-			event.next();
+			main.emit('done', pipeflow);
 		} else {
-			event.emit('done');			
+			event.next();
+			main.emit('next', pipeflow);
 		}
 	} catch (e) {
 		logger.error('Exception during pipe:', util.inspect(e));
-		if ( e.stack !== undefined ) {
+		if (e.stack !== undefined) {
 			logger.error(e.stack);
 		}
-		event.emit('error', e);
+		event.emit('error', pipeflow, e);
+		main.emit('error', pipeflow, e);
 		return;
 	}
 }
 
-Application.prototype.requestHandler = function(req, res) {
+Main.prototype.requestHandler = function(req, res) {
 	logger.info(req, 'New request');
 
 	var requestUrl = url.parse(req.url, true);
@@ -108,22 +107,23 @@ Application.prototype.requestHandler = function(req, res) {
 	 * framework and pipes
 	 */
 	var event = new events.EventEmitter();
-	
+
 	/*
 	 * Find the route that matches this request
 	 */
 	var route = this.routes.matches(req);
 
 	if (route !== undefined && route !== null) {
-		var requestState = {
+		var pipeflow = {
 			request : req,
 			response : res,
 			state : state,
 			event : event,
-			route : route
+			route : route,
+			main : this
 		};
 		event.pipes = route.pipes;
-		event.state = requestState;
+		event.state = pipeflow;
 		event.next = function() {
 			this.emit('next');
 		};
@@ -132,15 +132,12 @@ Application.prototype.requestHandler = function(req, res) {
 			this.emit('error', e);
 		};
 
-		event.on('error', function(e) {
+		event.on('error', function(pipeflow, e) {
 			pipe.sendError(e.statusCode, e.statusMessage, req, res);
 		});
-		
+
 		event.on('next', function() {
 			processPipe(event);
-		});
-
-		event.on('done', function() {
 		});
 
 		res.setTimeout(this.options.timeout || 5000, function() {
@@ -158,23 +155,31 @@ Application.prototype.requestHandler = function(req, res) {
 	}
 };
 
-Application.prototype.start = function() {
-	var application = this;
-	var requestHandler = this.options.requestHandler || Application.prototype.requestHandler;
-	var listenPort = this.options.listenPort || 8888;
-	var listenAddress = this.options.listAddress || '127.0.0.1';
-	function onRequest(req, res) {
-		requestHandler.call(application, req, res);
-	}
+Main.prototype.start = function() {
+	var main = this;
+	var listenPort = this.options.listenPort;
+	var listenAddress = this.options.listAddress || http.INADDR_ANY;
 	
-	this.emit('init');
-	this.httpServer = http.createServer(onRequest).listen(listenPort, listenAddress);
-	this.emit('start');
+	if ( listenPort === null || listenPort === undefined ) {
+		throw new error.Error('Missing listenPort option');
+	}
 
-	logger.info('Application listening on %s:%d', listenAddress, listenPort);
+	function onRequest(req, res) {
+		Main.prototype.requestHandler.call(main, req, res);
+	}
+
+	this.httpServer = http.createServer(onRequest);
+	this.emit('init');
+
+	this.httpServer.listen(listenPort, listenAddress);
+	this.emit('listen');
+
+	logger.info('Pipes listening on %s:%d', listenAddress, listenPort);
 };
 
-exports.route = route;
-exports.logger = logger;
-exports.pipe = pipe;
-exports.Application = Application;
+Main.route = route;
+Main.logger = logger;
+Main.pipe = pipe;
+Main.error = error;
+
+module.exports = Main;

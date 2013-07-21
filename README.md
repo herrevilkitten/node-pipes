@@ -20,37 +20,48 @@ same constructor arguments and methods.
 
 ### NamedRoute
 
+## Pipeflow
+
+* request
+* response
+* state
+* event
+* main
+
 ## Pipes
 
-## Plugins
+## Events
 
-TODO
+The Pipes framework will emit certain events
 
-### Events
+### Framework Events
 
-TODO
+#### init (Pipes)
 
-#### init
+This event is emitted during the start() method after the HttpServer is created.
 
-#### listen
+#### listen (Pipes, HttpServer)
 
-#### connect
+This event is emitted during the start() method after the HttpServer is started with listen().
 
-### Decorations
+#### connect (Pipes, Request)
 
-TODO
+This event is emitted at the start of the requestHandler() method.
 
-Decoration objects
+#### route (Pipes, Request, Route)
 
-#### request
+This event is emitted during the requestHandler() method after the route matching has occurred.  If no
+route matched, then Route will be null.
 
-#### response
+### Pipeflow Events
 
-#### state
+These events will be emitted as a request goes through its pipeflow.
 
-## Workflow
+#### next (Pipeflow)
 
-###
+#### error (Pipeflow, Error)
+
+#### done (Pipeflow)
 
 ## Dependencies
 
